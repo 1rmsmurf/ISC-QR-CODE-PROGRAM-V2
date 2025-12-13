@@ -41,28 +41,18 @@ Visit `http://localhost:3000` to see the app.
 
 ## Deployment to Vercel (Free)
 
-### 1. Push to GitHub
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/isc-media-upload.git
-git push -u origin main
-```
-
-### 2. Deploy on Vercel
+### 1. Deploy on Vercel
 
 1. Go to [vercel.com](https://vercel.com)
 2. Sign in with GitHub
 3. Click "Import Project"
-4. Select your repository
+4. Select our repository
 5. Add environment variables:
    - `BOX_DEVELOPER_TOKEN`
    - `NEXT_PUBLIC_BASE_URL` (will be your Vercel URL)
 6. Click "Deploy"
 
-### 3. Update Base URL
+### 2. Update Base URL
 
 After deployment, update `NEXT_PUBLIC_BASE_URL` in Vercel's environment variables to your actual domain (e.g., `https://isc-media.vercel.app`).
 
