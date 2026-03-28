@@ -1,4 +1,5 @@
 // pages/api/upload.js
+import { put } from '@vercel/blob';
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import path from 'path';
@@ -24,35 +25,6 @@ const parseForm = (req) => {
       resolve({ fields, files });
     });
   });
-};
-
-// Upload to BOX
-const uploadToBox = async (filePath, fileName, folderId) => {
-  const BoxSDK = require('box-node-sdk');
-  
-  const sdk = new BoxSDK({
-    clientID: 'dummy',
-    clientSecret: 'dummy',
-  });
-  
-  const client = sdk.getBasicClient(process.env.BOX_DEVELOPER_TOKEN);
-  
-  const stream = fs.createReadStream(filePath);
-  
-  try {
-    const file = await client.files.uploadFile(folderId, fileName, stream);
-    return file.entries[0];
-  } catch (error) {
-    // If file exists, upload new version
-    if (error.statusCode === 409) {
-      const existingFileId = error.context_info?.conflicts?.id;
-      if (existingFileId) {
-        const newVersion = await client.files.uploadNewFileVersion(existingFileId, stream);
-        return newVersion.entries[0];
-      }
-    }
-    throw error;
-  }
 };
 
 export default async function handler(req, res) {
@@ -85,57 +57,38 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Get the folder ID for this category
-    // Default to root folder (0) if not configured
-    const folderId = event.boxFolders?.[category] || '0';
-
     // Generate unique filename with timestamp
     const timestamp = Date.now();
     const originalName = file.originalFilename || 'upload';
     const ext = path.extname(originalName);
     const baseName = path.basename(originalName, ext);
-    const fileName = `${event.name}_${category}_${baseName}_${timestamp}${ext}`;
+    const fileName = `${event.name.replace(/\s+/g, '-')}/${category}/${baseName}_${timestamp}${ext}`;
 
-    // Upload to BOX
-    let boxFile;
-    try {
-      boxFile = await uploadToBox(file.filepath, fileName, folderId);
-      
-      // Clean up temp file
+    // Read file and upload to Vercel Blob
+    const fileBuffer = fs.readFileSync(file.filepath);
+    
+    const blob = await put(fileName, fileBuffer, {
+      access: 'public',
+      contentType: file.mimetype,
+    });
+
+    // Clean up temp file
+    if (fs.existsSync(file.filepath)) {
       fs.unlinkSync(file.filepath);
-      
-      // Increment upload count
-      incrementUploadCount(eventId);
-
-      return res.status(200).json({
-        success: true,
-        file: {
-          id: boxFile.id,
-          name: boxFile.name,
-          size: boxFile.size,
-        },
-      });
-    } catch (boxError) {
-      console.error('BOX upload error:', boxError);
-      
-      // Clean up temp file
-      if (fs.existsSync(file.filepath)) {
-        fs.unlinkSync(file.filepath);
-      }
-
-      // Check for common BOX errors
-      if (boxError.statusCode === 401) {
-        return res.status(500).json({ 
-          error: 'BOX authentication failed. Developer token may have expired.',
-          details: 'Please refresh the developer token in BOX and update .env.local'
-        });
-      }
-
-      return res.status(500).json({ 
-        error: 'Failed to upload to BOX',
-        details: boxError.message
-      });
     }
+
+    // Increment upload count
+    incrementUploadCount(eventId);
+
+    return res.status(200).json({
+      success: true,
+      file: {
+        url: blob.url,
+        name: fileName,
+        size: file.size,
+      },
+    });
+
   } catch (error) {
     console.error('Upload error:', error);
     return res.status(500).json({ error: 'Upload failed', details: error.message });
