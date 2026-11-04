@@ -4,3 +4,4 @@ node_modules/
 .env.local
 public/uploads/
 .DS_Store
+.box_refresh_token
