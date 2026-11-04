@@ -1,1 +1,65 @@
+name: Move media from Vercel Blob to Box
+
+on:
+  schedule:
+    # 12:00 AM and 12:00 PM Champaign time, adjusted for daylight saving
+    - cron: "0 0,12 * * *"
+      timezone: "America/Chicago"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List files and test Box access without moving anything"
+        type: boolean
+        default: true
+
+# Never run two transfers at once. Overlapping runs would fight over the
+# same files and the same Box refresh token.
+concurrency:
+  group: blob-to-box
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/blob_to_box/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/blob_to_box/requirements.txt
+
+      - name: Move files from Blob to Box
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          BOX_CLIENT_ID: ${{ secrets.BOX_CLIENT_ID }}
+          BOX_CLIENT_SECRET: ${{ secrets.BOX_CLIENT_SECRET }}
+          BOX_REFRESH_TOKEN: ${{ secrets.BOX_REFRESH_TOKEN }}
+          BOX_FOLDER_ID: ${{ vars.BOX_FOLDER_ID }}
+          BOX_ENTERPRISE_ID: ${{ vars.BOX_ENTERPRISE_ID }}
+          BOX_USER_ID: ${{ vars.BOX_USER_ID }}
+          BLOB_PREFIX: ${{ vars.BLOB_PREFIX }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: python scripts/blob_to_box/transfer.py
+
+      # OAuth mode only. Box replaces the refresh token on every run, so the
+      # new one goes back into the repo secret even when the transfer step fails.
+      - name: Save rotated Box refresh token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_PAT }}
+        run: |
+          if [ -s .box_refresh_token ]; then
+            gh secret set BOX_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" < .box_refresh_token
+            rm -f .box_refresh_token
+            echo "Saved new Box refresh token to repo secrets."
+          fi
 
